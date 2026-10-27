@@ -518,8 +518,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                           : kLongPressTimeout,
                     ),
                     (recognizer) => recognizer
-                      ..onLongPressStart = (_) => _pressStart()
-                      ..onLongPressEnd = (_) => _pressEnd()
+                      ..onLongPressStart = ((_) => _pressStart())
+                      ..onLongPressEnd = ((_) => _pressEnd())
                       ..onLongPressCancel = _pressEnd,
                   ),
               if (full) HorizontalDragGestureRecognizer:
@@ -536,9 +536,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                     () => VerticalDragGestureRecognizer(),
                     (recognizer) => recognizer
                       ..onStart = _verticalStart
-                      ..onUpdate = (details) => _verticalDistance += details.delta.dy
+                      ..onUpdate = ((details) => _verticalDistance += details.delta.dy)
                       ..onEnd = _verticalEnd
-                      ..onCancel = () => _verticalDistance = 0,
+                      ..onCancel = (() => _verticalDistance = 0),
                   ),
             },
           ),

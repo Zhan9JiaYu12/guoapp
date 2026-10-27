@@ -411,7 +411,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                       (recognizer) => recognizer
                         ..onLongPressStart = _pressStart
                         ..onLongPressMoveUpdate = _pressMove
-                        ..onLongPressEnd = (_) => _pressEnd()
+                        ..onLongPressEnd = ((_) => _pressEnd())
                         ..onLongPressCancel = _pressEnd,
                     ),
               },
