@@ -53,6 +53,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   bool _dragging = false;
   double? _seekValue;
   double? _seekTarget;
+  int? _swipeSeekIndex;
   Timer? _seekTimer;
 
   PlaybackSession get _session => widget.handle.session;
@@ -110,6 +111,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   void _changed() {
     _bind();
+    if (_swipeSeekIndex != null && _swipeSeekIndex != _session.index) {
+      _cancelSwipeSeek();
+    }
     if (_holding && _session.index != _heldIndex) _pressEnd();
     if (!_scrolling &&
         _pages.hasClients &&
@@ -185,19 +189,68 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     });
   }
 
-  void _pressStart(LongPressStartDetails details, double width) {
-    if (details.localPosition.dx < width / 5) {
-      if (!_session.boostLocked) _session.holdBoost();
-      unawaited(HapticFeedback.selectionClick());
-      setState(() {
-        _holding = true;
-        _heldIndex = _session.index;
-        _overMask = false;
-      });
-    } else {
-      unawaited(HapticFeedback.selectionClick());
-      unawaited(_openSettings());
+  void _pressStart(LongPressStartDetails details) {
+    if (!_session.boostLocked) _session.holdBoost();
+    unawaited(HapticFeedback.selectionClick());
+    setState(() {
+      _holding = true;
+      _heldIndex = _session.index;
+      _overMask = false;
+    });
+  }
+
+  void _startSwipeSeek(DragStartDetails details) {
+    if (!_session.ready ||
+        _session.player.state.duration <= Duration.zero ||
+        _scrolling ||
+        _holding) {
+      return;
     }
+    _seekTimer?.cancel();
+    _seekTarget = null;
+    setState(() {
+      _swipeSeekIndex = _session.index;
+      _dragging = true;
+      _seekValue = _session.player.state.position.inMilliseconds.toDouble();
+    });
+  }
+
+  void _updateSwipeSeek(DragUpdateDetails details) {
+    if (_swipeSeekIndex != _session.index) return;
+    final duration = _session.player.state.duration.inMilliseconds.toDouble();
+    final width = MediaQuery.sizeOf(context).width;
+    if (width <= 0) return;
+    setState(() {
+      _seekValue = ((_seekValue ?? 0) + details.delta.dx / width * duration)
+          .clamp(0.0, duration);
+    });
+  }
+
+  void _finishSwipeSeek(DragEndDetails details) {
+    if (_swipeSeekIndex != _session.index) return;
+    final value = _seekValue;
+    _swipeSeekIndex = null;
+    _dragging = false;
+    if (value == null || !_session.ready) {
+      setState(_endSeek);
+      return;
+    }
+    _seekTarget = value;
+    _seekTimer?.cancel();
+    _seekTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(_endSeek);
+    });
+    unawaited(_session.seekTo(Duration(milliseconds: value.round())));
+    setState(() {});
+  }
+
+  void _cancelSwipeSeek() {
+    if (_swipeSeekIndex == null) return;
+    setState(() {
+      _swipeSeekIndex = null;
+      _dragging = false;
+      _endSeek();
+    });
   }
 
   void _pressMove(LongPressMoveUpdateDetails details) {
@@ -328,17 +381,40 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               controller: session.danmaku,
               aspectRatio: session.aspectRatio,
             ),
-            LayoutBuilder(
+            RawGestureDetector(
               key: const ValueKey('gestures'),
-              builder: (context, constraints) => GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: session.togglePlayback,
-                onLongPressStart: (details) =>
-                    _pressStart(details, constraints.maxWidth),
-                onLongPressMoveUpdate: _pressMove,
-                onLongPressEnd: (_) => _pressEnd(),
-                onLongPressCancel: _pressEnd,
-              ),
+              behavior: HitTestBehavior.opaque,
+              gestures: {
+                HorizontalDragGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                      HorizontalDragGestureRecognizer
+                    >(
+                      () => HorizontalDragGestureRecognizer(),
+                      (recognizer) => recognizer
+                        ..onStart = _startSwipeSeek
+                        ..onUpdate = _updateSwipeSeek
+                        ..onEnd = _finishSwipeSeek
+                        ..onCancel = _cancelSwipeSeek,
+                    ),
+                TapGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                      () => TapGestureRecognizer(),
+                      (recognizer) => recognizer.onTap = session.togglePlayback,
+                    ),
+                LongPressGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                      LongPressGestureRecognizer
+                    >(
+                      () => LongPressGestureRecognizer(
+                        duration: const Duration(milliseconds: 200),
+                      ),
+                      (recognizer) => recognizer
+                        ..onLongPressStart = _pressStart
+                        ..onLongPressMoveUpdate = _pressMove
+                        ..onLongPressEnd = (_) => _pressEnd()
+                        ..onLongPressCancel = _pressEnd,
+                    ),
+              },
             ),
           ],
         ],
@@ -561,6 +637,12 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               ),
             ],
           ),
+        ),
+        IconButton(
+          onPressed: _openSettings,
+          icon: const Icon(Icons.settings_rounded),
+          color: Colors.white,
+          tooltip: '播放设置',
         ),
         FollowIcon(
           store: widget.store,

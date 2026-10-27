@@ -33,7 +33,7 @@ class ChoiceGrid {
     televisionWidth: 400,
   );
   static const categories = ChoiceGrid(
-    phone: 4,
+    phone: 1,
     wide: 5,
     television: 4,
     wideWidth: 520,

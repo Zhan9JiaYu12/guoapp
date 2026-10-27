@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -59,6 +60,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   bool _dragging = false;
   double? _seekValue;
   double? _seekTarget;
+  int? _swipeIndex;
+  double _verticalDistance = 0;
   int _streak = 0;
   int _streakTaps = 0;
   int _tab = 1;
@@ -293,6 +296,76 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     setState(() => _holding = false);
   }
 
+  void _swipeStart(DragStartDetails details) {
+    if (!_session.ready || _session.player.state.duration <= Duration.zero) {
+      return;
+    }
+    _tapTimer?.cancel();
+    _streakTimer?.cancel();
+    _streak = 0;
+    _hideTimer?.cancel();
+    _seekTimer?.cancel();
+    _seekTarget = null;
+    setState(() {
+      _swipeIndex = _session.index;
+      _dragging = true;
+      _seekValue = _session.player.state.position.inMilliseconds.toDouble();
+    });
+  }
+
+  void _swipeUpdate(DragUpdateDetails details) {
+    if (_swipeIndex == null) return;
+    if (_swipeIndex != _session.index) return _swipeCancel();
+    final duration = _session.player.state.duration.inMilliseconds.toDouble();
+    final width = MediaQuery.sizeOf(context).width;
+    if (width <= 0) return;
+    setState(() {
+      _seekValue = ((_seekValue ?? 0) + details.delta.dx / width * duration)
+          .clamp(0.0, duration);
+    });
+  }
+
+  void _swipeEnd(DragEndDetails details) {
+    if (_swipeIndex == null) return;
+    if (_swipeIndex != _session.index || !_session.ready) {
+      return _swipeCancel();
+    }
+    final value = _seekValue!;
+    _swipeIndex = null;
+    _dragging = false;
+    _seekTarget = value;
+    _seekTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(_endSeek);
+    });
+    unawaited(_session.seekTo(Duration(milliseconds: value.round())));
+    setState(() {});
+    _scheduleHide();
+  }
+
+  void _swipeCancel() {
+    if (_swipeIndex == null) return;
+    setState(() {
+      _swipeIndex = null;
+      _dragging = false;
+      _endSeek();
+    });
+    _scheduleHide();
+  }
+
+  void _verticalStart(DragStartDetails details) {
+    _tapTimer?.cancel();
+    _verticalDistance = 0;
+  }
+
+  void _verticalEnd(DragEndDetails details) {
+    final distance = _verticalDistance;
+    _verticalDistance = 0;
+    if (distance >= 60 && _session.hasNext) {
+      unawaited(HapticFeedback.selectionClick());
+      unawaited(_session.next());
+    }
+  }
+
   void _rotate(bool full) => unawaited(
     defaultTargetPlatform == TargetPlatform.windows
         ? windowManager.setFullScreen(!full).catchError((Object _) {})
@@ -427,12 +500,47 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           aspectRatio: session.aspectRatio,
         ),
         LayoutBuilder(
-          builder: (context, constraints) => GestureDetector(
+          builder: (context, constraints) => RawGestureDetector(
+            key: ValueKey(full),
             behavior: HitTestBehavior.opaque,
-            onTapUp: (details) => _tapUp(details, constraints.maxWidth, full),
-            onLongPressStart: (_) => _pressStart(),
-            onLongPressEnd: (_) => _pressEnd(),
-            onLongPressCancel: _pressEnd,
+            gestures: {
+              TapGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                    () => TapGestureRecognizer(),
+                    (recognizer) => recognizer.onTapUp =
+                        (details) => _tapUp(details, constraints.maxWidth, full),
+                  ),
+              LongPressGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                    () => LongPressGestureRecognizer(
+                      duration: full
+                          ? const Duration(milliseconds: 200)
+                          : kLongPressTimeout,
+                    ),
+                    (recognizer) => recognizer
+                      ..onLongPressStart = (_) => _pressStart()
+                      ..onLongPressEnd = (_) => _pressEnd()
+                      ..onLongPressCancel = _pressEnd,
+                  ),
+              if (full) HorizontalDragGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<HorizontalDragGestureRecognizer>(
+                    () => HorizontalDragGestureRecognizer(),
+                    (recognizer) => recognizer
+                      ..onStart = _swipeStart
+                      ..onUpdate = _swipeUpdate
+                      ..onEnd = _swipeEnd
+                      ..onCancel = _swipeCancel,
+                  ),
+              if (full) VerticalDragGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
+                    () => VerticalDragGestureRecognizer(),
+                    (recognizer) => recognizer
+                      ..onStart = _verticalStart
+                      ..onUpdate = (details) => _verticalDistance += details.delta.dy
+                      ..onEnd = _verticalEnd
+                      ..onCancel = () => _verticalDistance = 0,
+                  ),
+            },
           ),
         ),
         if (session.ready && session.stalled)
@@ -461,6 +569,22 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
             bottom: 0,
             height: 2,
             child: IgnorePointer(child: _thinProgress(context)),
+          ),
+        if (_swipeIndex != null)
+          Center(
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .72),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${formatClock(Duration(milliseconds: (_seekValue ?? 0).round()))} / ${formatClock(session.player.state.duration)}',
+                  style: const TextStyle(color: Colors.white, fontSize: 22),
+                ),
+              ),
+            ),
           ),
         if (session.boosting)
           Positioned(
