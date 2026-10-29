@@ -2,6 +2,8 @@ name: Build personal ZhenGuoJian iOS
 
 on:
   workflow_dispatch:
+  push:
+    branches: [personal-ios]
 
 permissions:
   contents: read
@@ -36,6 +38,8 @@ jobs:
         run: dart analyze lib/local_store.dart lib/local_snapshot.dart lib/playback_session.dart lib/source_catalog.dart lib/search_library.dart lib/main.dart lib/ui/terminal_gate.dart lib/ui/search/search_page.dart lib/ui/mine/mine_page.dart lib/ui/mine/search_library_page.dart lib/ui/detail/detail_page.dart lib/ui/downloads/downloaded_drama_page.dart lib/ui/player/portrait_player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/widgets/choice_panel.dart
       - name: Test playback history storage
         run: flutter test test/local_store_test.dart test/local_store_access_test.dart
+      - name: Test SQLite index and resumable scans
+        run: flutter test test/search_library_test.dart --dart-define=ALL_SOURCES=true
       - name: Build unsigned IPA
         run: python scripts/build_ios.py --all-sources
       - uses: actions/upload-artifact@v4

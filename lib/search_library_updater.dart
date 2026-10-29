@@ -9,7 +9,7 @@ import 'search_library.dart';
 
 class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
   SearchLibraryUpdater._(this.repository, this.store, SearchLibrary? index)
-      : library = index ?? SearchLibrary(store.preferences) {
+    : library = index ?? SearchLibrary(store.preferences) {
     WidgetsBinding.instance.addObserver(this);
     store.addListener(_accessChanged);
   }
@@ -22,9 +22,16 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
       _current = null;
     }
   }
-  static SearchLibraryUpdater obtain(AppRepository repository, LocalStore store, {SearchLibrary? library}) {
+
+  static SearchLibraryUpdater obtain(
+    AppRepository repository,
+    LocalStore store, {
+    SearchLibrary? library,
+  }) {
     final current = _current;
-    if (current != null && !current._disposed && identical(current.store, store)) {
+    if (current != null &&
+        !current._disposed &&
+        identical(current.store, store)) {
       return current;
     }
     if (current != null && !current._disposed) current.dispose();
@@ -61,8 +68,11 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> loadStats() async {
     for (final source in store.sources) {
       if (!SearchLibrary.sources.contains(source.id)) continue;
-      try { statistics[source.id] = await library.stats(source.id); }
-      catch (error) { messages[source.id] = '索引读取失败：$error'; }
+      try {
+        statistics[source.id] = await library.stats(source.id);
+      } catch (error) {
+        messages[source.id] = '索引读取失败：$error';
+      }
     }
     _notify(immediate: true);
   }
@@ -73,7 +83,8 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.hidden || state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
       paused = true;
       _foreground ??= Completer<void>();
     } else if (state == AppLifecycleState.resumed) {
@@ -91,8 +102,11 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
     _notify(immediate: true);
   }
 
-  bool _allowed(String source) => !_disposed && !stopping &&
-      store.profileEpoch == _epoch && store.allowsSource(source);
+  bool _allowed(String source) =>
+      !_disposed &&
+      !stopping &&
+      store.profileEpoch == _epoch &&
+      store.allowsSource(source);
 
   Future<bool> _ready(String source) async {
     if (!_allowed(source)) return false;
@@ -105,8 +119,13 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> start(Set<String> sources, {bool quick = false}) async {
     if (running || _disposed) return;
-    final pending = store.sources.where((site) =>
-      sources.contains(site.id) && SearchLibrary.sources.contains(site.id)).toList();
+    final pending = store.sources
+        .where(
+          (site) =>
+              sources.contains(site.id) &&
+              SearchLibrary.sources.contains(site.id),
+        )
+        .toList();
     if (pending.isEmpty) return;
     running = true;
     stopping = false;
@@ -119,6 +138,7 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
         await _scan(source, quick: quick);
       }
     }
+
     try {
       // At most two sources, two pages per source; native limiter remains active.
       await Future.wait([worker(), worker()]);
@@ -128,10 +148,23 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<({CatalogPage? result, Object? error})> _fetch(String source, String category, int page) async {
+  Future<({CatalogPage? result, Object? error})> _fetch(
+    String source,
+    String category,
+    int page,
+  ) async {
     try {
-      return (result: await repository.scanCatalog(source, category: category, page: page), error: null);
-    } catch (error) { return (result: null, error: error); }
+      return (
+        result: await repository.scanCatalog(
+          source,
+          category: category,
+          page: page,
+        ),
+        error: null,
+      );
+    } catch (error) {
+      return (result: null, error: error);
+    }
   }
 
   Future<void> _scan(SourceSite source, {required bool quick}) async {
@@ -148,7 +181,10 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
         _notify();
         // A category failure leaves the run incomplete; don't mark it complete.
         final remote = await repository.categories(source.id, force: true);
-        categories = <String>{'', ...remote.where((item) => !item.local).map((item) => item.id)}.toList();
+        categories = <String>{
+          '',
+          ...remote.where((item) => !item.local).map((item) => item.id),
+        }.toList();
       }
       var categoryIndex = checkpoint?['categoryIndex'] as int? ?? 0;
       var page = checkpoint?['page'] as int? ?? 1;
@@ -157,7 +193,8 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
         final category = categories[categoryIndex];
         while (await _ready(source.id)) {
           if (page > 10000) throw StateError('分页超过上限，已保留断点');
-          messages[source.id] = '${quick ? '快速更新' : '目录扫描'} ${categoryIndex + 1}/${categories.length} · 第 $page 页 · 本次新增 $added 部';
+          messages[source.id] =
+              '${quick ? '快速更新' : '目录扫描'} ${categoryIndex + 1}/${categories.length} · 第 $page 页 · 本次新增 $added 部';
           _notify();
           final width = quick ? (4 - page).clamp(1, parallel) : parallel;
           final results = await Future.wait([
@@ -169,20 +206,32 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
           bool ended = false;
           Object? failure;
           for (final response in results) {
-            if (response.error != null) { failure = response.error; break; }
+            if (response.error != null) {
+              failure = response.error;
+              break;
+            }
             final result = response.result!;
             if (result.page != nextPage) {
-              failure = StateError('站源返回页码与请求不符'); break;
+              failure = StateError('站源返回页码与请求不符');
+              break;
             }
             final signature = result.items.map((item) => item.id).join('|');
-            if (result.hasMore && (signature.isEmpty || signature == lastSignature)) {
-              failure = StateError('站源重复返回目录或空页'); break;
+            if (result.hasMore &&
+                (signature.isEmpty || signature == lastSignature)) {
+              failure = StateError('站源重复返回目录或空页');
+              break;
             }
             buffer.addAll(result.items);
-            if (result.warning.isNotEmpty) { failure = StateError(result.warning); break; }
+            if (result.warning.isNotEmpty) {
+              failure = StateError(result.warning);
+              break;
+            }
             lastSignature = signature;
             nextPage++;
-            if (!result.hasMore) { ended = true; break; }
+            if (!result.hasMore) {
+              ended = true;
+              break;
+            }
           }
           // Persist the batch even on stop/background; never advance beyond a failed page.
           final state = {
@@ -192,7 +241,11 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
             'signature': ended ? null : lastSignature,
           };
           if (_disposed || store.profileEpoch != _epoch) return;
-          added += await library.saveBatch(source.id, buffer, quick ? null : state);
+          added += await library.saveBatch(
+            source.id,
+            buffer,
+            quick ? null : state,
+          );
           statistics[source.id] = await library.stats(source.id);
           _notify();
           page = nextPage;
