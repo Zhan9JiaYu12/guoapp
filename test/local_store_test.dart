@@ -69,6 +69,7 @@ void main() {
       });
       expect(LocalSnapshot.libraryKeys, {
         'history',
+        'episodeHistory',
         'favorites',
         'followStates',
         'seriesCandidates',
@@ -264,6 +265,27 @@ void main() {
   });
 
   group('backup', () {
+    test('episode positions survive switching, restart and backup', () async {
+      final store = await openStore();
+      await store.saveWatch(watching(first, episode: 1, position: 25));
+      await store.saveWatch(watching(first, episode: 2, position: 48));
+      expect(store.watched(first.id)!.episode, 2);
+      final reloaded = LocalStore(store.preferences);
+      expect(reloaded.episodeResumePosition(first.id, 1), 25);
+      expect(reloaded.episodeResumePosition(first.id, 2), 48);
+      final backup = await reloaded.exportBackup();
+      await reloaded.clearHistory();
+      expect(reloaded.episodeResumePosition(first.id, 1), 0);
+      await reloaded.importBackup(backup);
+      expect(reloaded.episodeResumePosition(first.id, 1), 25);
+      await reloaded.saveWatch(watching(first, episode: 1, position: 100));
+      expect(reloaded.episodeResumePosition(first.id, 1), 0);
+      expect(reloaded.episodeResumePosition(first.id, 2), 48);
+      await reloaded.removeHistory({first.id});
+      expect(reloaded.episodeResumePosition(first.id, 2), 0);
+      reloaded.dispose();
+      store.dispose();
+    });
     test('a round trip restores records and theme, nothing else', () async {
       final store = await openStore({'plugin_secret': 'stays-local'});
       await store.toggleFavorite(first);

@@ -97,10 +97,10 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     if (_playing) return;
     _playing = true;
     final episode = item.episodes[index].episode;
-    final watch = widget.store.watched(item.drama.id);
-    final position = watch?.episode == episode.number && !watch!.finished
-        ? watch.position
-        : 0.0;
+    final position = widget.store.episodeResumePosition(
+      item.drama.id,
+      episode.number,
+    );
     final handle = PlaybackHandle(
       repository: AppScope.of(context).repository,
       store: widget.store,

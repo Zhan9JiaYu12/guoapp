@@ -243,11 +243,11 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   double _startAt(int index, {required bool resume}) {
-    final watch = _details!.watch;
-    return resume &&
-            watch?.episode == _details!.episodes[index].number &&
-            !watch!.finished
-        ? watch.position
+    return resume
+        ? widget.store.episodeResumePosition(
+            _details!.drama.id,
+            _details!.episodes[index].number,
+          )
         : 0.0;
   }
 
@@ -290,7 +290,7 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Future<void> _play(int index, {bool resume = false}) async {
+  Future<void> _play(int index, {bool resume = true}) async {
     final details = _details!;
     final episode = details.episodes[index];
     if (episode.vip &&

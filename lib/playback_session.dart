@@ -467,6 +467,12 @@ class PlaybackSession extends ChangeNotifier {
     bool playWhenReady = true,
   }) async {
     if (!_usable || index < 0 || index >= detail.episodes.length) return;
+    if (position == 0 && recovery == null) {
+      position = store.episodeResumePosition(
+        detail.drama.id,
+        detail.episodes[index].number,
+      );
+    }
     endBoost();
     _staleAudio = false;
     if (index != _index) _online = false;
