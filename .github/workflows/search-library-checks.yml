@@ -4,6 +4,7 @@ on:
     branches: [personal-ios]
     paths:
       - 'lib/search_library*'
+      - 'lib/main.dart'
       - 'lib/ui/mine/search_library_page.dart'
       - 'test/search_library*'
       - 'pubspec.yaml'
@@ -36,7 +37,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart format lib/search_library.dart lib/search_library_updater.dart lib/ui/mine/search_library_page.dart test/search_library_test.dart
-      - run: dart analyze lib/search_library.dart lib/search_library_updater.dart lib/source_catalog.dart lib/core_bridge.dart lib/ui/mine/search_library_page.dart test/search_library_test.dart
+      - run: dart analyze lib/main.dart lib/search_library.dart lib/search_library_updater.dart lib/source_catalog.dart lib/core_bridge.dart lib/ui/mine/search_library_page.dart test/search_library_test.dart
       - run: flutter test test/search_library_test.dart --dart-define=ALL_SOURCES=true
       - uses: actions/upload-artifact@v4
         if: always()

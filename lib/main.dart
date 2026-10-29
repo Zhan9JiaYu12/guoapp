@@ -11,6 +11,7 @@ import 'app_device.dart';
 import 'core_bridge.dart';
 import 'diary_service.dart';
 import 'local_store.dart';
+import 'search_library_updater.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/terminal_gate.dart';
@@ -60,6 +61,9 @@ class _AppBootstrapState extends State<AppBootstrap>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (store case final local?) {
+      SearchLibraryUpdater.releaseStore(local);
+    }
     store?.dispose();
     super.dispose();
   }
