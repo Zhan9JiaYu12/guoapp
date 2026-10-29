@@ -7,11 +7,24 @@ on:
       - 'lib/ui/mine/search_library_page.dart'
       - 'test/search_library*'
       - 'pubspec.yaml'
+      - 'native/core/app_runtime.go'
+      - 'native/core/app_sources_test.go'
       - '.github/workflows/search-library-checks.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - run: go test ./core -run 'TestCatalogScanPreservesRequestedPageAndBrowseCache|TestSourceUpdatesPreservePagesOtherSourcesAndMetadata' -count=1
+        working-directory: native
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
