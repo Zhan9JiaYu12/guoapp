@@ -36,11 +36,14 @@ class SearchLibrary {
   static Future<Database> _open() async => openDatabase(
     path.join(await getDatabasesPath(), 'search_library_v2.db'),
     version: 1,
-    onConfigure: (db) async {
-      await db.execute('PRAGMA journal_mode=WAL');
-    },
+    onConfigure: configureDatabase,
     onCreate: createSchema,
   );
+
+  static Future<void> configureDatabase(Database db) async {
+    // journal_mode returns a row. Darwin/FMDatabase rejects it via execute().
+    await db.rawQuery('PRAGMA journal_mode=WAL');
+  }
 
   static Future<void> createSchema(Database db, int version) async {
     await db.execute(

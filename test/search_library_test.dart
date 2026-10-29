@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:duanju_app/search_library.dart';
 import 'package:duanju_app/search_library_updater.dart';
@@ -10,6 +11,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/fakes.dart';
+
+class QueryOnlyDatabase implements Database {
+  final queries = <String>[];
+
+  @override
+  Future<List<Map<String, Object?>>> rawQuery(String sql, [List<Object?>? arguments]) async {
+    queries.add(sql);
+    return [{'journal_mode': 'wal'}];
+  }
+
+  @override
+  Future<void> execute(String sql, [List<Object?>? arguments]) async {
+    throw StateError('Row-returning PRAGMA must use rawQuery');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class ScanRepository extends FakeRepository {
   final requests = <int>[];
@@ -41,6 +60,38 @@ class ScanRepository extends FakeRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
+
+  test('WAL configuration uses the query API required by Darwin', () async {
+    final database = QueryOnlyDatabase();
+    await SearchLibrary.configureDatabase(database);
+    expect(database.queries, ['PRAGMA journal_mode=WAL']);
+  });
+
+  test('file database opens with production configuration and retains index on reopen', () async {
+    final directory = await Directory.systemTemp.createTemp('search-library-wal-');
+    addTearDown(() => directory.delete(recursive: true));
+    final filename = '${directory.path}/index.db';
+    final options = OpenDatabaseOptions(
+      version: 1,
+      onConfigure: SearchLibrary.configureDatabase,
+      onCreate: SearchLibrary.createSchema,
+    );
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final first = await databaseFactoryFfi.openDatabase(filename, options: options);
+    try {
+      expect((await first.rawQuery('PRAGMA journal_mode')).single.values.single, 'wal');
+      await SearchLibrary(preferences, database: first).saveBatch(
+        'huangdou', [drama('wal', source: 'huangdou')], {'page': 2},
+      );
+    } finally { await first.close(); }
+    final reopened = await databaseFactoryFfi.openDatabase(filename, options: options);
+    try {
+      final library = SearchLibrary(preferences, database: reopened);
+      expect((await library.stats('huangdou')).count, 1);
+      expect((await library.checkpoint('huangdou'))!['page'], 2);
+    } finally { await reopened.close(); }
+  });
 
   test(
     'legacy index migrates once and batches merge without losing records',
