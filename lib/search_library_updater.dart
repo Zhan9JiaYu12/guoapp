@@ -17,7 +17,9 @@ class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
   static SearchLibraryUpdater? _current;
   static SearchLibraryUpdater obtain(AppRepository repository, LocalStore store, {SearchLibrary? library}) {
     final current = _current;
-    if (current != null && !current._disposed && identical(current.store, store)) return current;
+    if (current != null && !current._disposed && identical(current.store, store)) {
+      return current;
+    }
     if (current != null && !current._disposed) current.dispose();
     return _current = SearchLibraryUpdater._(repository, store, library);
   }

@@ -47,7 +47,9 @@ class _SearchLibraryPageState extends State<SearchLibraryPage> {
     try {
       await _updater.clear(source.id);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 

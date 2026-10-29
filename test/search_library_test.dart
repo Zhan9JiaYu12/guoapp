@@ -14,7 +14,7 @@ import 'support/fakes.dart';
 class ScanRepository extends FakeRepository {
   final requests = <int>[];
   final started = Completer<void>();
-  final release = Completer<void>();
+  final responseReady = Completer<void>();
   @override
   Future<List<CatalogCategory>> categories(String source, {bool force = false}) async => const [];
 
@@ -22,7 +22,7 @@ class ScanRepository extends FakeRepository {
   Future<CatalogPage> scanCatalog(String source, {int page = 1, String category = ''}) async {
     requests.add(page);
     if (!started.isCompleted) started.complete();
-    await release.future;
+    await responseReady.future;
     return CatalogPage([drama('$page', source: source)], page: page, hasMore: page < 3);
   }
 }
@@ -90,7 +90,7 @@ void main() {
     await repository.started.future;
     expect(SearchLibraryUpdater.obtain(repository, store), same(updater));
     updater.didChangeAppLifecycleState(AppLifecycleState.paused);
-    repository.release.complete();
+    repository.responseReady.complete();
     // Current batch can persist, but page 3 must wait for foreground.
     for (var attempts = 0; attempts < 100; attempts++) {
       if ((await library.checkpoint('huangdou'))?['page'] == 3) break;
