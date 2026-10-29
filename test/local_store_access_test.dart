@@ -183,11 +183,11 @@ void main() {
 
   test('build edition names match the source list', () {
     expect(appSlug, allSourcesEnabled ? 'zhenguojian' : 'hongguojian');
-    expect(appName, allSourcesEnabled ? '真果鉴' : '红果鉴');
+    expect(appName, '终端');
     expect(
       SourceSite.values.map((site) => site.id),
       allSourcesEnabled
-          ? SourceSite.allValues.map((site) => site.id)
+          ? SourceSite.restrictedValues.map((site) => site.id)
           : ['hongguo'],
     );
     expect(SourceSite.isKnown('dsd'), isTrue);

@@ -284,7 +284,6 @@ void main() {
       await reloaded.removeHistory({first.id});
       expect(reloaded.episodeResumePosition(first.id, 2), 0);
       reloaded.dispose();
-      store.dispose();
     });
     test('a round trip restores records and theme, nothing else', () async {
       final store = await openStore({'plugin_secret': 'stays-local'});

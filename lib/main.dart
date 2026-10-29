@@ -13,6 +13,7 @@ import 'diary_service.dart';
 import 'local_store.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
+import 'ui/terminal_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +33,7 @@ Future<void> main() async {
     '[App] 应用启动，版本: ${device.version}, '
     '平台: ${Platform.operatingSystem}$rendering',
   );
-  runApp(AppBootstrap(device: device));
+  runApp(TerminalGate(child: AppBootstrap(device: device)));
 }
 
 class AppBootstrap extends StatefulWidget {

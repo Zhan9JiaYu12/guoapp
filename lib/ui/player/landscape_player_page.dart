@@ -363,6 +363,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     if (distance >= 60 && _session.hasNext) {
       unawaited(HapticFeedback.selectionClick());
       unawaited(_session.next());
+    } else if (distance <= -60 && _session.hasPrevious) {
+      unawaited(HapticFeedback.selectionClick());
+      unawaited(_session.previous());
     }
   }
 
@@ -522,7 +525,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                       ..onLongPressEnd = ((_) => _pressEnd())
                       ..onLongPressCancel = _pressEnd,
                   ),
-              if (full) HorizontalDragGestureRecognizer:
+              HorizontalDragGestureRecognizer:
                   GestureRecognizerFactoryWithHandlers<HorizontalDragGestureRecognizer>(
                     () => HorizontalDragGestureRecognizer(),
                     (recognizer) => recognizer

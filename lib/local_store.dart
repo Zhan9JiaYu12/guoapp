@@ -130,6 +130,25 @@ class LocalStore extends ChangeNotifier {
       sourceEnabled(source);
   List<SourceSite> get sources =>
       SourceSite.values.where((site) => allowsSource(site.id)).toList();
+
+  List<SourceSite> searchSources(String fallback) {
+    final raw = preferences.getStringList('searchSources.$_current');
+    if (raw != null) {
+      return sources.where((site) => raw.contains(site.id)).toList();
+    }
+    final initial = sources.where((site) => site.id == fallback).toList();
+    return initial.isNotEmpty ? initial : sources.take(1).toList();
+  }
+
+  Future<void> setSearchSources(Set<String> ids) async {
+    final allowed = sources.where((site) => ids.contains(site.id)).toList();
+    if (!await preferences.setStringList(
+      'searchSources.$_current',
+      allowed.map((site) => site.id).toList(),
+    )) {
+      throw StateError('搜索站源未能保存');
+    }
+  }
   List<SourceSite> get permittedSources => [
     for (final site in SourceSite.values)
       if (!locked && profile.allows(site.id)) site,
@@ -978,6 +997,7 @@ class LocalStore extends ChangeNotifier {
       ),
     }, remove: LocalSnapshot.libraryKeys.map((key) => _key(key, id)));
     await preferences.remove(_seriesKey(id));
+    await preferences.remove('searchSources.$id');
     await preferences.remove(_followChecksKey(id));
     _profiles = profiles;
     _notify();

@@ -16,6 +16,7 @@ import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/page_header.dart';
 import '../widgets/group_card.dart';
+import 'search_library_page.dart';
 
 String _size(int bytes) => bytes >= 1 << 30
     ? '${(bytes / (1 << 30)).toStringAsFixed(1)} GB'
@@ -63,8 +64,24 @@ class MinePage extends StatelessWidget {
   Widget _userCard(BuildContext context) =>
       _UserCard(store: store, onTap: () => openUsers(context, store));
 
-  Widget _settings(BuildContext context) => _SettingsEntry(
-    onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+  Widget _searchLibrary(BuildContext context) => ListTile(
+    leading: const Icon(Icons.manage_search_rounded),
+    title: const Text('搜索剧库缓存'),
+    subtitle: const Text('黄豆、黄果目录缓存与增量更新'),
+    trailing: const Icon(Icons.chevron_right_rounded),
+    onTap: () => openPage<void>(
+      context, (_) => SearchLibraryPage(store: store),
+    ),
+  );
+
+  Widget _settings(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _searchLibrary(context),
+      _SettingsEntry(
+        onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+      ),
+    ],
   );
 
   Widget _poster(
@@ -295,6 +312,17 @@ class MinePage extends StatelessWidget {
                         subtitle:
                             '${store.profile.admin ? '管理员' : '普通用户'} · 切换用户',
                         onTap: () => openUsers(context, store),
+                      ),
+                    ),
+                    Expanded(
+                      child: _TelevisionEntry(
+                        icon: Icons.manage_search_rounded,
+                        title: '搜索剧库缓存',
+                        subtitle: '缓存目录、增量更新',
+                        onTap: () => openPage<void>(
+                          context,
+                          (_) => SearchLibraryPage(store: store),
+                        ),
                       ),
                     ),
                     Expanded(

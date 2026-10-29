@@ -34,8 +34,8 @@ class _SearchPageState extends State<SearchPage> {
   late final _controller = TextEditingController(text: widget.query);
   final _focus = FocusNode();
   late AppRepository _repository;
-  late SourceCatalog _catalog;
-  DramaFeed? _results;
+  final Map<String, DramaFeed> _results = {};
+  List<SourceSite> _sources = [];
   String _submitted = '';
   List<String> _suggestions = const [];
   Timer? _debounce;
@@ -48,7 +48,7 @@ class _SearchPageState extends State<SearchPage> {
     if (_ready) return;
     _ready = true;
     _repository = AppScope.of(context).repository;
-    _catalog = SourceCatalog(_repository, widget.source);
+    _sources = widget.store.searchSources(widget.source.id);
     if (widget.query.trim().isNotEmpty) _submit(widget.query);
   }
 
@@ -57,7 +57,9 @@ class _SearchPageState extends State<SearchPage> {
     _debounce?.cancel();
     _suggestion++;
     unawaited(_repository.cancelSuggestions());
-    _results?.dispose();
+    for (final feed in _results.values) {
+      feed.dispose();
+    }
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -71,11 +73,19 @@ class _SearchPageState extends State<SearchPage> {
     _debounce?.cancel();
     _suggestion++;
     unawaited(widget.store.rememberSearch(query).catchError((Object _) {}));
-    _results?.dispose();
-    final results = _results = DramaFeed(
-      load: (page, _) => _catalog.search(query, page: page),
-    )..addListener(() => setState(() {}));
-    unawaited(results.reload());
+    for (final feed in _results.values) {
+      feed.dispose();
+    }
+    _results.clear();
+    for (final source in _sources) {
+      if (!widget.store.allowsSource(source.id)) continue;
+      final catalog = SourceCatalog(_repository, source);
+      final feed = DramaFeed(
+        load: (page, _) => catalog.search(query, page: page),
+      )..addListener(_refresh);
+      _results[source.id] = feed;
+      unawaited(feed.reload());
+    }
     setState(() {
       _submitted = query;
       _suggestions = const [];
@@ -86,7 +96,7 @@ class _SearchPageState extends State<SearchPage> {
     _debounce?.cancel();
     final query = text.trim();
     final generation = ++_suggestion;
-    if (!widget.source.searchSuggestions || query.isEmpty) {
+    if (!(_sources.length == 1 && _sources.single.searchSuggestions) || query.isEmpty) {
       setState(() => _suggestions = const []);
       return;
     }
@@ -108,7 +118,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final field = SearchField(
-      hint: '在 ${widget.source.name} 中搜索',
+      hint: '搜索已选的 ${_sources.length} 个站源',
       controller: _controller,
       focusNode: _focus,
       autofocus: widget.query.isEmpty,
@@ -128,6 +138,7 @@ class _SearchPageState extends State<SearchPage> {
               ),
               child: field,
             ),
+            _sourceSelector(),
             Expanded(child: _body(context)),
           ],
         ),
@@ -138,7 +149,14 @@ class _SearchPageState extends State<SearchPage> {
         titleSpacing: 0,
         title: Padding(padding: const EdgeInsets.only(right: 16), child: field),
       ),
-      body: SafeArea(top: false, bottom: false, child: _body(context)),
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: Column(children: [
+          _sourceSelector(),
+          Expanded(child: _body(context)),
+        ]),
+      ),
     );
   }
 
@@ -162,62 +180,149 @@ class _SearchPageState extends State<SearchPage> {
         ],
       );
     }
-    final results = _results;
-    if (results == null) return _recent(context);
-    if (results.items.isEmpty) {
-      if (results.loading) return const StatusView.loading(title: '正在搜索');
-      if (results.error.isNotEmpty) {
-        return StatusView(
-          title: '搜索失败',
-          message: results.error,
-          icon: Icons.cloud_off_rounded,
-          action: '重试',
-          onAction: () => results.reload(),
-        );
-      }
-      return StatusView(
-        title: '没有找到「$_submitted」',
-        message: '换个关键词试试',
-        icon: Icons.search_off_rounded,
+    if (_submitted.isEmpty) return _recent(context);
+    if (_results.isEmpty) {
+      return const StatusView(
+        title: '请选择搜索站源',
+        message: '点击上方站源按钮，选择要搜索的站源',
+        icon: Icons.manage_search_rounded,
       );
     }
-    final inset = television
-        ? televisionInset
-        : AppScope.formFactorOf(context) == FormFactor.phone
-        ? 16.0
-        : 24.0;
+    final inset = television ? televisionInset : 16.0;
     return LayoutBuilder(
-      builder: (context, constraints) => AutoLoadMore(
-        feed: results,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                inset,
-                television ? 16 : 8,
-                inset,
-                0,
+      builder: (context, constraints) => CustomScrollView(
+        slivers: [
+          for (final source in _sources)
+            if (_results[source.id] case final feed?) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(inset, 16, inset, 8),
+                  child: Text(
+                    '${source.name} · ${feed.items.length} 个结果${source.onlineSearch ? '' : '（本地缓存）'}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
               ),
-              sliver: DramaSliverGrid(
-                width: constraints.maxWidth - inset * 2,
-                items: results.items,
-                autofocus: television,
-                onOpen: _open,
+              if (feed.loading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                )
+              else if (feed.items.isEmpty && feed.error.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: inset, vertical: 12),
+                    child: const Text('没有找到相关结果'),
+                  ),
+                ),
+              SliverPadding(
+                padding: EdgeInsets.symmetric(horizontal: inset),
+                sliver: DramaSliverGrid(
+                  width: constraints.maxWidth - inset * 2,
+                  items: feed.items,
+                  onOpen: _open,
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 16),
+                sliver: SliverToBoxAdapter(
+                  child: Column(children: [
+                    if (feed.canLoadMore)
+                      TextButton(
+                        onPressed: feed.loadMore,
+                        child: Text('加载更多${source.name}结果'),
+                      ),
+                    if (!feed.loading) FeedFooter(feed: feed),
+                  ]),
+                ),
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  Widget _sourceSelector() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(children: [
+      Expanded(
+        child: Text(
+          _sources.isEmpty
+              ? '尚未选择站源'
+              : _sources.map((site) => site.name).join('、'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      TextButton.icon(
+        onPressed: _pickSources,
+        icon: const Icon(Icons.tune_rounded),
+        label: const Text('选择站源'),
+      ),
+    ]),
+  );
+
+  Future<void> _pickSources() async {
+    final selected = _sources.map((site) => site.id).toSet();
+    final available = widget.store.sources;
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('选择搜索站源'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final source in available)
+                    CheckboxListTile(
+                      title: Text(source.name),
+                      subtitle: Text(source.onlineSearch ? '在线搜索' : '搜索本地已缓存内容'),
+                      value: selected.contains(source.id),
+                      onChanged: (checked) => update(() {
+                        if (checked == true) {
+                          selected.add(source.id);
+                        } else {
+                          selected.remove(source.id);
+                        }
+                      }),
+                    ),
+                ],
               ),
             ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                inset,
-                8,
-                inset,
-                television ? 27 : 16,
-              ),
-              sliver: SliverToBoxAdapter(child: FeedFooter(feed: results)),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+            FilledButton(
+              onPressed: selected.isEmpty ? null : () => Navigator.pop(context, selected),
+              child: const Text('确定'),
             ),
           ],
         ),
       ),
     );
+    if (result == null || !mounted) return;
+    try {
+      await widget.store.setSearchSources(result);
+      if (!mounted) return;
+      setState(() => _sources = widget.store.sources.where((site) => result.contains(site.id)).toList());
+      _changed(_controller.text);
+      if (_submitted.isNotEmpty) _submit(_controller.text);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('搜索站源未能保存，请重试')),
+        );
+      }
+    }
   }
 
   Widget _recent(BuildContext context) => ListenableBuilder(
@@ -226,7 +331,7 @@ class _SearchPageState extends State<SearchPage> {
       final recent = widget.store.recentSearches;
       if (recent.isEmpty) {
         return StatusView(
-          title: '在 ${widget.source.name} 中搜索',
+          title: '搜索已选的 ${_sources.length} 个站源',
           message: '输入剧名或关键词',
           icon: Icons.search_rounded,
         );

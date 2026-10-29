@@ -1,6 +1,8 @@
 import 'core_bridge.dart';
 import 'models.dart';
 import 'ranking_models.dart';
+import 'search_library.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 String categoryName(String name) {
   final compact = name.trim().replaceAll(RegExp(r'\s+'), '');
@@ -104,6 +106,23 @@ class SourceCatalog {
   }) => repository.recommendations(recommendGenre, more: more, force: force);
 
   Future<CatalogPage> search(String query, {int page = 1}) async {
+    if (SearchLibrary.sources.contains(source.id)) {
+      final library = SearchLibrary(await SharedPreferences.getInstance());
+      final indexed = library.search(source.id, query);
+      final combined = {for (final item in indexed) item.id: item};
+      String warning = '';
+      try {
+        final cached = await repository.catalog(source.id, query: query);
+        for (final item in cached.items) {
+          combined.putIfAbsent(item.id, () => item);
+        }
+        warning = cached.warning;
+      } catch (error) {
+        if (combined.isEmpty) rethrow;
+        warning = '已显示搜索索引结果；浏览缓存读取失败：$error';
+      }
+      return CatalogPage(combined.values.toList(), warning: warning);
+    }
     final result = await repository.catalog(
       source.id,
       query: query,
