@@ -160,6 +160,8 @@ abstract class AppRepository {
     String category = '',
     bool force = false,
   });
+  Future<CatalogPage> scanCatalog(String source, {int page = 1, String category = ''}) =>
+      catalog(source, page: page, category: category, force: true);
   Future<CatalogPage> cached(String source, {String category = ''});
   Future<String> cover(Drama drama, {bool force = false});
   bool coverCached(Drama drama) => false;
@@ -613,6 +615,13 @@ class NativeRepository extends AppRepository {
       'force': force,
     }),
   );
+  @override
+  Future<CatalogPage> scanCatalog(String source, {int page = 1, String category = ''}) async =>
+      CatalogPage.fromJson(await _call({
+        'action': 'catalog', 'source': source, 'page': page,
+        'category': category, 'force': true, 'scan': true,
+      }));
+
   @override
   Future<CatalogPage> cached(String source, {String category = ''}) async =>
       CatalogPage.fromJson(

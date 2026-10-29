@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../../search_library.dart';
+import '../../search_library_updater.dart';
 import '../app_scope.dart';
 
 class SearchLibraryPage extends StatefulWidget {
@@ -14,91 +15,20 @@ class SearchLibraryPage extends StatefulWidget {
 }
 
 class _SearchLibraryPageState extends State<SearchLibraryPage> {
-  late final _library = SearchLibrary(widget.store.preferences);
+  late SearchLibraryUpdater _updater;
   final _selected = <String>{};
-  final _messages = <String, String>{};
-  bool _running = false;
-  bool _cancel = false;
+  bool _ready = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_ready) return;
+    _ready = true;
+    _updater = SearchLibraryUpdater.obtain(AppScope.of(context).repository, widget.store);
     _selected.addAll(widget.store.sources
         .where((site) => SearchLibrary.sources.contains(site.id))
         .map((site) => site.id));
-  }
-
-  @override
-  void dispose() {
-    _cancel = true;
-    super.dispose();
-  }
-
-  void _message(String source, String message) {
-    if (mounted) setState(() => _messages[source] = message);
-  }
-
-  Future<void> _update() async {
-    final repository = AppScope.of(context).repository;
-    final epoch = widget.store.profileEpoch;
-    final selected = widget.store.sources
-        .where((site) => _selected.contains(site.id)).toList();
-    setState(() { _running = true; _cancel = false; });
-    for (final source in selected) {
-      bool allowed() => mounted && !_cancel &&
-          epoch == widget.store.profileEpoch && widget.store.allowsSource(source.id);
-      if (!allowed()) break;
-      try {
-        final items = {for (final item in _library.read(source.id)) item.id: item};
-        final before = items.keys.toSet();
-        final categories = <String>{''};
-        String categoryWarning = '';
-        _message(source.id, '正在获取分类');
-        try {
-          categories.addAll((await repository.categories(source.id, force: true))
-              .where((category) => !category.local).map((category) => category.id));
-        } catch (_) {
-          categoryWarning = '分类获取失败，仅扫描全部目录；请重试以补齐分类';
-        }
-        for (final category in categories) {
-          final seenPages = <String>{};
-          for (var page = 1; ; page++) {
-            if (!allowed()) break;
-            if (page > 10000) throw StateError('分页超过上限，未确认扫描完成');
-            _message(source.id, '分类 ${categories.toList().indexOf(category) + 1}/${categories.length} · 第 $page 页 · ${items.length} 部');
-            final result = await repository.catalog(
-              source.id, category: category, page: page, force: true,
-            );
-            if (!allowed()) break;
-            for (final item in result.items) {
-              if (item.source == source.id) {
-                items[item.id] = items[item.id]?.merge(item) ?? item;
-              }
-            }
-            // Save each successful page, so cancellation/errors retain progress.
-            await _library.save(source.id, items.values);
-            if (result.warning.isNotEmpty) throw StateError(result.warning);
-            final signature = result.items.map((item) => item.id).join('|');
-            if (result.hasMore &&
-                (signature.isEmpty || !seenPages.add(signature))) {
-              throw StateError('站源重复返回目录或空页，已暂停，请稍后重试');
-            }
-            if (!result.hasMore) break;
-          }
-          if (!allowed()) break;
-        }
-        if (!allowed()) {
-          _message(source.id, '已停止，已保存的目录可用于搜索');
-          break;
-        }
-        final added = items.keys.where((id) => !before.contains(id)).length;
-        if (categoryWarning.isEmpty) await _library.markUpdated(source.id);
-        _message(source.id, '共 ${items.length} 部，新增 $added 部。${categoryWarning.isEmpty ? '已扫描当前接口可访问目录' : categoryWarning}');
-      } catch (error) {
-        _message(source.id, '更新未完成，已保留缓存：$error');
-      }
-    }
-    if (mounted) setState(() => _running = false);
+    _updater.loadStats();
   }
 
   Future<void> _clear(SourceSite source) async {
@@ -115,13 +45,19 @@ class _SearchLibraryPageState extends State<SearchLibraryPage> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await _library.clear(source.id);
-      _message(source.id, '搜索索引已清理');
-    } catch (error) { _message(source.id, '$error'); }
+      await _updater.clear(source.id);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([_updater, widget.store]),
+    builder: (context, _) => _build(context),
+  );
+
+  Widget _build(BuildContext context) {
     final sources = widget.store.sources
         .where((site) => SearchLibrary.sources.contains(site.id)).toList();
     return Scaffold(
@@ -134,39 +70,46 @@ class _SearchLibraryPageState extends State<SearchLibraryPage> {
             CheckboxListTile(
               title: Text(source.name),
               value: _selected.contains(source.id),
-              onChanged: _running ? null : (value) => setState(() {
+              onChanged: _updater.running ? null : (value) => setState(() {
                 if (value == true) { _selected.add(source.id); }
                 else { _selected.remove(source.id); }
               }),
               subtitle: Text(_status(source)),
             ),
-            if (_messages[source.id] case final message?)
+            if (_updater.messages[source.id] case final message?)
               Padding(padding: const EdgeInsets.all(12), child: Text(message)),
-            TextButton(onPressed: _running ? null : () => _clear(source), child: const Text('清理搜索索引')),
+            TextButton(onPressed: _updater.running ? null : () => _clear(source), child: const Text('清理搜索索引')),
           ]),
         ),
         if (sources.isEmpty) const Text('请先在站源设置中启用黄豆或黄果站源'),
-        if (_running) ...[
+        if (_updater.running) ...[
           const LinearProgressIndicator(),
+          Text(_updater.paused ? '已暂停发起新请求，回到前台继续' : '更新中，可以离开此页面'),
           TextButton(
-            onPressed: _cancel ? null : () => setState(() => _cancel = true),
-            child: Text(_cancel ? '正在等待当前请求结束' : '停止更新'),
+            onPressed: _updater.stopping ? null : _updater.stop,
+            child: Text(_updater.stopping ? '正在保存当前进度' : '停止更新'),
           ),
-        ] else FilledButton(
-          onPressed: _selected.any((id) => sources.any((site) => site.id == id)) ? _update : null,
-          child: const Text('缓存 / 增量更新所选站源'),
-        ),
+        ] else ...[
+          FilledButton(
+            onPressed: _selected.isEmpty ? null : () => _updater.start(_selected, quick: true),
+            child: const Text('快速更新（各目录前 3 页）'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _selected.isEmpty ? null : () => _updater.start(_selected),
+            child: const Text('完整扫描 / 从断点继续'),
+          ),
+        ],
         const SizedBox(height: 12),
-        const Text('更新时请保持此页面和 App 在前台。离开页面会停止后续请求；再次更新会从首页重新扫描并合并，不会清空已有索引。'),
+        const Text('无需停留此页面，App 内切换页面时继续更新。切到其他 App 或锁屏后暂停新请求，返回前台继续。完整扫描中断后会从已保存断点继续；快速更新可能遗漏旧目录中的内容，可用完整扫描补漏。'),
       ]),
     );
   }
 
   String _status(SourceSite source) {
-    try {
-      final count = _library.read(source.id).length;
-      final time = _library.updated(source.id)?.toLocal().toString().split('.').first;
-      return '已缓存 $count 部\n${time == null ? '尚未完成目录更新' : '上次完成：$time'}';
-    } catch (_) { return '索引读取失败，请清理后重新缓存'; }
+    final stats = _updater.statistics[source.id];
+    if (stats == null) return '正在读取索引信息';
+    final time = stats.updated?.toLocal().toString().split('.').first;
+    return '已缓存 ${stats.count} 部\n${time == null ? '尚未完成目录扫描' : '上次完整扫描：$time'}';
   }
 }

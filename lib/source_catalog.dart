@@ -108,7 +108,7 @@ class SourceCatalog {
   Future<CatalogPage> search(String query, {int page = 1}) async {
     if (SearchLibrary.sources.contains(source.id)) {
       final library = SearchLibrary(await SharedPreferences.getInstance());
-      final indexed = library.search(source.id, query);
+      final indexed = await library.search(source.id, query);
       final combined = {for (final item in indexed) item.id: item};
       String warning = '';
       try {

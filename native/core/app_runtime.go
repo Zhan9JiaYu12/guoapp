@@ -94,6 +94,7 @@ type nativeDrama struct {
 }
 
 type nativeInput struct {
+	Scan            bool                    `json:"scan"`
 	SystemProxy     nativeSystemProxy       `json:"systemProxy"`
 	Settings        nativeResourceSettings  `json:"settings"`
 	JobIDs          []string                `json:"jobIds"`
@@ -466,7 +467,8 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	}
 	page := max(1, input.Page)
 	query := strings.TrimSpace(input.Query)
-	if query == "" {
+	scan := input.Scan && query == "" && (source == sourceHuangdou || source == sourceHuangguoAI || source == sourceHuangguoVideo || source == sourceCloudFront)
+	if query == "" && !scan {
 		if retried, err := engine.retryCatalogSave(); retried {
 			cached := engine.nativeCached(cacheKey)
 			if err != nil || len(cached.Items) > 0 {
@@ -474,7 +476,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 			}
 		}
 	}
-	if query == "" && page == 1 && !input.Force {
+	if query == "" && page == 1 && !input.Force && !scan {
 		if cached := engine.nativeCached(cacheKey); cached.Fresh {
 			return cached, nil
 		}
@@ -574,11 +576,13 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.LocalSearch = true
 		return result, nil
 	}
-	unlock, lockErr := engine.lockSourceCatalog(ctx, source)
-	if lockErr != nil {
-		return nativeCatalogResult{}, lockErr
+	if !scan {
+		unlock, lockErr := engine.lockSourceCatalog(ctx, source)
+		if lockErr != nil {
+			return nativeCatalogResult{}, lockErr
+		}
+		defer unlock()
 	}
-	defer unlock()
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -670,7 +674,9 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		seen[drama.ID] = true
 		result.Items = append(result.Items, nativeNormalize(drama))
 	}
-	engine.saveCatalogCache(cacheKey, &result)
+	if !scan {
+		engine.saveCatalogCache(cacheKey, &result)
+	}
 	return result, nil
 }
 

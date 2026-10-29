@@ -2,8 +2,6 @@ name: Build personal ZhenGuoJian iOS
 
 on:
   workflow_dispatch:
-  push:
-    branches: [personal-ios]
 
 permissions:
   contents: read
