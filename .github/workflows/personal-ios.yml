@@ -35,7 +35,9 @@ jobs:
           flutter precache --ios
       - run: flutter pub get --enforce-lockfile
       - name: Analyze modified player and category widgets
-        run: dart analyze lib/ui/player/portrait_player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/widgets/choice_panel.dart
+        run: dart analyze lib/local_store.dart lib/local_snapshot.dart lib/playback_session.dart lib/ui/detail/detail_page.dart lib/ui/downloads/downloaded_drama_page.dart lib/ui/player/portrait_player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/widgets/choice_panel.dart
+      - name: Test playback history storage
+        run: flutter test test/local_store_test.dart test/local_store_access_test.dart
       - name: Build unsigned IPA
         run: python scripts/build_ios.py --all-sources
       - uses: actions/upload-artifact@v4

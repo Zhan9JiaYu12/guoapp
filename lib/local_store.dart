@@ -25,6 +25,7 @@ class LocalStore extends ChangeNotifier {
   final Future<String> Function(String pin, String salt) _pinHasher;
   LocalSnapshot? _snapshot;
   final Map<String, WatchEntry> _history = {};
+  final Map<String, WatchEntry> _episodeHistory = {};
   final Map<String, Drama> _favorites = {};
   final Map<String, FollowState> _followStates = {};
   final Map<String, Drama> _seriesCandidates = {};
@@ -94,6 +95,7 @@ class LocalStore extends ChangeNotifier {
     ];
     _current = 'default';
     _history.clear();
+    _episodeHistory.clear();
     _favorites.clear();
     _followStates.clear();
     _seriesCandidates.clear();
@@ -164,6 +166,7 @@ class LocalStore extends ChangeNotifier {
 
   void _loadLibrary() {
     _history.clear();
+    _episodeHistory.clear();
     _favorites.clear();
     _followStates.clear();
     if (_configurationError != null) return;
@@ -172,6 +175,18 @@ class LocalStore extends ChangeNotifier {
         final entry = WatchEntry.fromJson(row);
         _history[entry.drama.id] = entry;
       } catch (_) {}
+    }
+    for (final row in readJsonList(_string(_key('episodeHistory')))) {
+      try {
+        final entry = WatchEntry.fromJson(row);
+        _episodeHistory[jsonEncode([entry.drama.id, entry.episode])] = entry;
+      } catch (_) {}
+    }
+    for (final entry in _history.values) {
+      _episodeHistory.putIfAbsent(
+        jsonEncode([entry.drama.id, entry.episode]),
+        () => entry,
+      );
     }
     for (final row in readJsonList(_string(_key('favorites')))) {
       try {
@@ -273,6 +288,16 @@ class LocalStore extends ChangeNotifier {
   WatchEntry? watched(String id) {
     final entry = _history[id];
     return entry != null && allowsSource(entry.drama.source) ? entry : null;
+  }
+
+  WatchEntry? episodeWatched(String id, int episode) {
+    final entry = _episodeHistory[jsonEncode([id, episode])];
+    return entry != null && allowsSource(entry.drama.source) ? entry : null;
+  }
+
+  double episodeResumePosition(String id, int episode) {
+    final entry = episodeWatched(id, episode);
+    return entry != null && !entry.finished ? entry.position : 0;
   }
 
   bool isFavorite(String id) =>
@@ -606,6 +631,10 @@ class LocalStore extends ChangeNotifier {
               updatedAt: entry.updatedAt,
             );
       final entries = Map.of(_history)..[entry.drama.id] = current;
+      final episodes = Map.of(_episodeHistory)
+        ..[jsonEncode([entry.drama.id, entry.episode])] = current;
+      final sortedEpisodes = episodes.values.toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       final sorted = entries.values.toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       final following = _followStates[entry.drama.id];
@@ -618,6 +647,9 @@ class LocalStore extends ChangeNotifier {
         );
       }
       await _commit({
+        _key('episodeHistory'): jsonEncode(
+          sortedEpisodes.take(5000).map((entry) => entry.toJson()).toList(),
+        ),
         _key('history'): jsonEncode(
           sorted.take(300).map((entry) => entry.toJson()).toList(),
         ),
@@ -668,7 +700,7 @@ class LocalStore extends ChangeNotifier {
     final epoch = _epoch;
     return _queue(() async {
       if (locked || epoch != _epoch) return;
-      await _commit({}, remove: [_key('history')]);
+      await _commit({}, remove: [_key('history'), _key('episodeHistory')]);
       _loadLibrary();
       _notify();
     });
@@ -687,7 +719,12 @@ class LocalStore extends ChangeNotifier {
       if (removed.isEmpty) return;
       final entries = Map.of(_history)
         ..removeWhere((id, _) => removed.contains(id));
+      final episodes = _episodeHistory.values
+          .where((entry) => !removed.contains(entry.drama.id));
       await _commit({
+        _key('episodeHistory'): jsonEncode(
+          episodes.map((entry) => entry.toJson()).toList(),
+        ),
         _key('history'): jsonEncode(
           entries.values.map((entry) => entry.toJson()).toList(),
         ),
@@ -964,6 +1001,9 @@ class LocalStore extends ChangeNotifier {
         for (final profile in _profiles)
           profile.id: {
             'history': readJsonList(_string(_key('history', profile.id))),
+            'episodeHistory': readJsonList(
+              _string(_key('episodeHistory', profile.id)),
+            ),
             'favorites': readJsonList(_string(_key('favorites', profile.id))),
             'followStates': jsonDecode(
               _string(_key('followStates', profile.id)) ?? '{}',
@@ -1027,12 +1067,14 @@ class LocalStore extends ChangeNotifier {
       final history = library['history'] as List,
           favorites = library['favorites'] as List;
       final media = library['mediaHistory'] as Map? ?? {};
+      final episodes = library['episodeHistory'] as List? ?? [];
       if (media.length > 300 ||
+          episodes.length > 5000 ||
           history.length > 300 ||
           favorites.length > 20000) {
         throw const FormatException('备份记录过多');
       }
-      for (final row in [...history, ...media.values]) {
+      for (final row in [...history, ...episodes, ...media.values]) {
         WatchEntry.fromJson(Map<String, dynamic>.from(row as Map));
       }
       for (final row in favorites) {
@@ -1106,6 +1148,9 @@ class LocalStore extends ChangeNotifier {
       final library = libraries[profile.id] as Map;
       values.addAll({
         _key('history', profile.id): jsonEncode(library['history']),
+        _key('episodeHistory', profile.id): jsonEncode(
+          library['episodeHistory'] ?? [],
+        ),
         _key('favorites', profile.id): jsonEncode(library['favorites']),
         _key('followStates', profile.id): jsonEncode(
           library['followStates'] ?? {},
