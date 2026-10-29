@@ -1,11 +1,31 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:duanju_app/search_library.dart';
+import 'package:duanju_app/search_library_updater.dart';
+import 'package:duanju_app/models.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/fakes.dart';
+
+class ScanRepository extends FakeRepository {
+  final requests = <int>[];
+  final started = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<List<CatalogCategory>> categories(String source, {bool force = false}) async => const [];
+
+  @override
+  Future<CatalogPage> scanCatalog(String source, {int page = 1, String category = ''}) async {
+    requests.add(page);
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    return CatalogPage([drama('$page', source: source)], page: page, hasMore: page < 3);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -54,5 +74,36 @@ void main() {
     await expectLater(library.saveBatch('huangdou', [drama('2', source: 'huangdou')], {'page': 3}), throwsA(isA<DatabaseException>()));
     expect((await library.stats('huangdou')).count, 1);
     expect((await library.checkpoint('huangdou'))!['page'], 2);
+  });
+
+  test('updater survives page reattachment, pauses and resumes at checkpoint', () async {
+    final store = await openStore();
+    await store.setSourceEnabled('huangdou', true);
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+      options: OpenDatabaseOptions(version: 1, onCreate: SearchLibrary.createSchema));
+    addTearDown(db.close);
+    final library = SearchLibrary(store.preferences, database: db);
+    final repository = ScanRepository();
+    final updater = SearchLibraryUpdater.obtain(repository, store, library: library);
+    addTearDown(updater.dispose);
+    final task = updater.start({'huangdou'});
+    await repository.started.future;
+    expect(SearchLibraryUpdater.obtain(repository, store), same(updater));
+    updater.didChangeAppLifecycleState(AppLifecycleState.paused);
+    repository.release.complete();
+    // Current batch can persist, but page 3 must wait for foreground.
+    for (var attempts = 0; attempts < 100; attempts++) {
+      if ((await library.checkpoint('huangdou'))?['page'] == 3) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(repository.requests, [1, 2]);
+    expect((await library.checkpoint('huangdou'))!['page'], 3);
+    updater.stop();
+    await task;
+    updater.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await updater.start({'huangdou'});
+    expect(repository.requests, [1, 2, 3, 4]);
+    expect((await library.stats('huangdou')).count, 3);
+    expect(await library.checkpoint('huangdou'), isNull);
   });
 }

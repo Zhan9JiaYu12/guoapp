@@ -8,18 +8,18 @@ import 'models.dart';
 import 'search_library.dart';
 
 class SearchLibraryUpdater extends ChangeNotifier with WidgetsBindingObserver {
-  SearchLibraryUpdater._(this.repository, this.store)
-      : library = SearchLibrary(store.preferences) {
+  SearchLibraryUpdater._(this.repository, this.store, SearchLibrary? index)
+      : library = index ?? SearchLibrary(store.preferences) {
     WidgetsBinding.instance.addObserver(this);
     store.addListener(_accessChanged);
   }
 
   static SearchLibraryUpdater? _current;
-  static SearchLibraryUpdater obtain(AppRepository repository, LocalStore store) {
+  static SearchLibraryUpdater obtain(AppRepository repository, LocalStore store, {SearchLibrary? library}) {
     final current = _current;
-    if (current != null && identical(current.store, store)) return current;
-    current?.dispose();
-    return _current = SearchLibraryUpdater._(repository, store);
+    if (current != null && !current._disposed && identical(current.store, store)) return current;
+    if (current != null && !current._disposed) current.dispose();
+    return _current = SearchLibraryUpdater._(repository, store, library);
   }
 
   final AppRepository repository;

@@ -91,3 +91,21 @@ func TestSourceBackoffUsesRelativeTimeAndRetainsTypedError(t *testing.T) {
 		t.Fatal("redaction discarded structured retry time")
 	}
 }
+
+func TestCatalogScanPreservesRequestedPageAndBrowseCache(t *testing.T) {
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		return sourceFixtureResponse(request, 200, `{"data":[{"id":"scan","title":"scan fixture","totalEpisode":2}]}`), nil
+	})
+	engine.catalogs[sourceHuangguoAI] = []nativeDrama{{ID: "huangguoai:cached", Source: sourceHuangguoAI, Title: "cached"}}
+	engine.catalogStates[sourceHuangguoAI] = nativeCatalogState{Page: 8, HasMore: true}
+	result, err := engine.nativeCatalog(context.Background(), nativeInput{Source: sourceHuangguoAI, Page: 1, Force: true, Scan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Page != 1 || len(result.Items) != 1 || result.Items[0].ID != "huangguoai:scan" {
+		t.Fatalf("scan returned merged browse cache: %+v", result)
+	}
+	if engine.catalogStates[sourceHuangguoAI].Page != 8 || engine.catalogs[sourceHuangguoAI][0].ID != "huangguoai:cached" {
+		t.Fatal("scan changed browse cache")
+	}
+}
